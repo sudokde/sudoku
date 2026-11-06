@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<meta name="description" content="Sudoku offline">
+<title>Sudoku</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  /* ---------- Paleta clara ----------
+     Inicio y récords: neutros (tinta sobre papel, tipo diario).
+     Juego: el lila es el color principal. */
+  :root{
+    --bg:#ffffff;
+    --ink:#1c1c1e;
+    --muted:#8a8a8e;
+    --line:#d9d9dc;
+    --line-strong:#1c1c1e;
+    --peer:#f5f4f7;
+    --error:#c0392b;
+    --error-soft:#fbe9e7;
+    --primary-sub:#bdbdc2;
+    --overlay:rgba(255,255,255,.94);
+    /* neutro para inicio/récords */
+    --accent:#1c1c1e;
+    /* lila para el juego */
+    --lila:#7b5ea7;
+    --lila-soft:#efe9f7;
+    --lila-same:#ddd0ee;
+    --lila-line:#5b3f86;
+  }
+  /* ---------- Paleta oscura ----------
+     Se aplica si el celular está en modo oscuro (y no forzaste claro),
+     o si elegiste "Oscuro" en el menú. */
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#121214; --ink:#ececee; --muted:#8e8e93; --line:#2e2e33; --line-strong:#9a9aa0;
+      --peer:#1c1b21; --error:#ff7466; --error-soft:#3b1f1c; --primary-sub:#5c5c62;
+      --overlay:rgba(18,18,20,.95); --accent:#ececee;
+      --lila:#c3a6ec; --lila-soft:#2b2338; --lila-same:#3c3050; --lila-line:#c3a6ec;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#121214; --ink:#ececee; --muted:#8e8e93; --line:#2e2e33; --line-strong:#9a9aa0;
+    --peer:#1c1b21; --error:#ff7466; --error-soft:#3b1f1c; --primary-sub:#5c5c62;
+    --overlay:rgba(18,18,20,.95); --accent:#ececee;
+    --lila:#c3a6ec; --lila-soft:#2b2338; --lila-same:#3c3050; --lila-line:#c3a6ec;
+  }
+  /* Dentro del juego y del cartel de victoria, el acento pasa a ser lila */
+  #game,#win{
+    --accent:var(--lila);
+    --accent-soft:var(--lila-soft);
+    --same:var(--lila-same);
+    --line-strong:var(--lila-line);
+    --given:var(--ink);
+    --user:var(--lila);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  [hidden]{display:none!important}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-user-select:none;user-select:none;overscroll-behavior:none}
+  body{display:flex;justify-content:center}
+  .screen{width:100%;max-width:480px;min-height:100%;padding:16px;
+    padding-top:max(16px,env(safe-area-inset-top));
+    padding-bottom:max(16px,env(safe-area-inset-bottom));
+    display:none;flex-direction:column}
+  .screen.active{display:flex}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+
+  /* ---------- Inicio ---------- */
+  #home{justify-content:center;gap:28px}
+  .brand{text-align:center}
+  .brand h1{font-size:40px;font-weight:300;letter-spacing:.18em;margin:0}
+  .brand p{margin:6px 0 0;color:var(--muted);font-size:14px}
+  .menu{display:flex;flex-direction:column;gap:10px}
+  .menu .label{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:8px 0 2px}
+  .btn{display:flex;justify-content:space-between;align-items:center;
+    padding:16px 18px;border:1px solid var(--line);border-radius:12px;font-size:17px;background:var(--bg)}
+  .btn:active{background:var(--peer)}
+  .btn small{color:var(--muted);font-size:13px}
+  .btn.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  .btn.primary small{color:var(--primary-sub)}
+  .btn.primary:active{opacity:.85}
+
+  /* ---------- Juego ---------- */
+  .topbar{display:flex;align-items:center;justify-content:space-between;height:44px;margin-bottom:8px}
+  .topbar .back{font-size:15px;color:var(--accent);padding:8px 4px}
+  .topbar .diff{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+  .topbar .timer{font-variant-numeric:tabular-nums;font-size:16px;min-width:56px;text-align:right}
+
+  .board{display:grid;grid-template-columns:repeat(9,1fr);aspect-ratio:1;width:100%;
+    border:2px solid var(--line-strong);border-radius:4px;overflow:hidden}
+  .cell{position:relative;display:flex;align-items:center;justify-content:center;
+    border-right:1px solid var(--line);border-bottom:1px solid var(--line);
+    font-size:min(7vw,30px);font-variant-numeric:tabular-nums}
+  .cell:nth-child(9n){border-right:0}
+  .cell:nth-child(9n+3),.cell:nth-child(9n+6){border-right:2px solid var(--line-strong)}
+  .cell.r2,.cell.r5{border-bottom:2px solid var(--line-strong)}
+  .cell.r8{border-bottom:0}
+  .cell.given{color:var(--given);font-weight:500}
+  .cell.user{color:var(--user)}
+  .cell.peer{background:var(--peer)}
+  .cell.same{background:var(--same)}
+  .cell.sel{background:var(--accent-soft);box-shadow:inset 0 0 0 2px var(--accent)}
+  .cell.wrong{color:var(--error);background:var(--error-soft)}
+  .notes{position:absolute;inset:2px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr)}
+  .notes span{display:flex;align-items:center;justify-content:center;font-size:min(2.6vw,11px);color:var(--muted);line-height:1}
+
+  .message{min-height:22px;margin:10px 0 4px;text-align:center;font-size:14px;color:var(--muted)}
+  .message.err{color:var(--error)}
+
+  .tools{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:6px 0 12px}
+  .tool{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0;border-radius:10px;font-size:12px;color:var(--muted)}
+  .tool svg{width:24px;height:24px;stroke:var(--ink);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  .tool:active{background:var(--peer)}
+  .tool.on{color:var(--accent)}
+  .tool.on svg{stroke:var(--accent)}
+  .tool .badge{font-size:10px;letter-spacing:.08em}
+
+  .pad{display:grid;grid-template-columns:repeat(9,1fr);gap:4px}
+  .num{display:flex;flex-direction:column;align-items:center;justify-content:center;
+    aspect-ratio:.72;border-radius:10px;font-size:min(7.5vw,30px);color:var(--accent)}
+  .num small{font-size:10px;color:var(--muted);margin-top:2px}
+  .num:active{background:var(--accent-soft)}
+  .num.used{opacity:.25;pointer-events:none}
+  .pad.notes-mode .num{color:var(--muted)}
+
+  /* ---------- Récords ---------- */
+  #records h2{font-weight:300;font-size:26px;letter-spacing:.08em;margin:8px 0 20px}
+  .rec{display:flex;justify-content:space-between;padding:16px 4px;border-bottom:1px solid var(--line)}
+  .rec .k{font-size:17px}
+  .rec .v{text-align:right;font-variant-numeric:tabular-nums}
+  .rec .v small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+
+  /* ---------- Diálogo de victoria ---------- */
+  .overlay{position:fixed;inset:0;background:var(--overlay);display:none;align-items:center;justify-content:center;padding:24px}
+  .overlay.show{display:flex}
+  .card{width:100%;max-width:340px;text-align:center}
+  .card h2{font-weight:300;font-size:30px;letter-spacing:.08em;margin:0 0 8px}
+  .card p{color:var(--muted);margin:4px 0}
+  .card .time{font-size:44px;font-weight:200;font-variant-numeric:tabular-nums;margin:16px 0 4px;color:var(--ink)}
+  .card .best{color:var(--accent);font-size:14px;min-height:20px}
+  .card .menu{margin-top:24px}
+
+  .loading{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:var(--overlay);color:var(--muted);font-size:14px;letter-spacing:.1em}
+  .loading.show{display:flex}
+</style>
+</head>
+<body>
+
+<!-- Pantalla de inicio -->
+<section id="home" class="screen active">
+  <div class="brand">
+    <h1>SUDOKU</h1>
+    <p>Sin conexión, sin anuncios</p>
+  </div>
+  <div class="menu">
+    <button class="btn primary" id="btnContinue" hidden>
+      <span>Continuar</span><small id="continueInfo"></small>
+    </button>
+    <div class="label">Nueva partida</div>
+    <button class="btn" data-new="facil"><span>Fácil</span><small id="bestFacil"></small></button>
+    <button class="btn" data-new="medio"><span>Medio</span><small id="bestMedio"></small></button>
+    <button class="btn" data-new="dificil"><span>Difícil</span><small id="bestDificil"></small></button>
+    <div class="label">&nbsp;</div>
+    <button class="btn" id="btnRecords"><span>Récords</span><small>›</small></button>
+    <button class="btn" id="btnTheme"><span>Tema</span><small id="themeLabel">Automático</small></button>
+  </div>
+</section>
+
+<!-- Pantalla de juego -->
+<section id="game" class="screen">
+  <div class="topbar">
+    <button class="back" id="btnBack">‹ Menú</button>
+    <span class="diff" id="diffLabel"></span>
+    <span class="timer" id="timer">0:00</span>
+  </div>
+  <div class="board" id="board"></div>
+  <div class="message" id="message"></div>
+  <div class="tools">
+    <button class="tool" id="btnUndo">
+      <svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>
+      Deshacer
+    </button>
+    <button class="tool" id="btnErase">
+      <svg viewBox="0 0 24 24"><path d="M20 20H9L4 15a2 2 0 0 1 0-2.8l8.2-8.2a2 2 0 0 1 2.8 0l4.2 4.2a2 2 0 0 1 0 2.8L12 18.2"/><path d="m8 10 6 6"/></svg>
+      Borrar
+    </button>
+    <button class="tool" id="btnNotes">
+      <svg viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/><path d="m13.5 6.5 4 4"/></svg>
+      <span>Notas <span class="badge" id="notesState">NO</span></span>
+    </button>
+  </div>
+  <div class="pad" id="pad"></div>
+</section>
+
+<!-- Pantalla de récords -->
+<section id="records" class="screen">
+  <div class="topbar">
+    <button class="back" id="btnRecBack">‹ Menú</button>
+    <span></span><span></span>
+  </div>
+  <h2>Récords</h2>
+  <div id="recList"></div>
+</section>
+
+<!-- Victoria -->
+<div class="overlay" id="win">
+  <div class="card">
+    <h2>¡Resuelto!</h2>
+    <p id="winDiff"></p>
+    <div class="time" id="winTime"></div>
+    <div class="best" id="winBest"></div>
+    <div class="menu">
+      <button class="btn primary" id="btnAgain"><span>Otra partida</span><small id="againDiff"></small></button>
+      <button class="btn" id="btnWinMenu"><span>Menú</span><small>›</small></button>
+    </div>
+  </div>
+</div>
+
+<div class="loading" id="loading">GENERANDO…</div>
+
+<script>
+/* ================================================================
+   GENERADOR DE SUDOKUS
+   Trabajamos con el tablero como un array de 81 números (0 = vacía).
+   Índice i → fila = floor(i/9), columna = i%9, caja = 3*floor(fila/3)+floor(col/3)
+   ================================================================ */
+const ROW = [], COL = [], BOX = [];
+for (let i = 0; i < 81; i++) {
+  ROW[i] = Math.floor(i / 9);
+  COL[i] = i % 9;
+  BOX[i] = Math.floor(ROW[i] / 3) * 3 + Math.floor(COL[i] / 3);
+}
+// PEERS[i] = las 20 celdas que comparten fila, columna o caja con i
+const PEERS = [];
+for (let i = 0; i < 81; i++) {
+  const s = new Set();
+  for (let j = 0; j < 81; j++)
+    if (j !== i && (ROW[j] === ROW[i] || COL[j] === COL[i] || BOX[j] === BOX[i])) s.add(j);
+  PEERS[i] = [...s];
+}
+
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// Cuenta soluciones (se detiene al llegar a `limit`).
+// Usa máscaras de bits: el bit d indica que el dígito d ya está usado.
+function countSolutions(grid, limit = 2) {
+  const g = grid.slice();
+  const rm = new Array(9).fill(0), cm = new Array(9).fill(0), bm = new Array(9).fill(0);
+  for (let i = 0; i < 81; i++) if (g[i]) {
+    const b = 1 << g[i];
+    rm[ROW[i]] |= b; cm[COL[i]] |= b; bm[BOX[i]] |= b;
+  }
+  let count = 0;
+  function solve() {
+    // Elegimos la celda vacía con menos candidatos (resuelve mucho más rápido)
+    let best = -1, bestMask = 0, bestN = 10;
+    for (let i = 0; i < 81; i++) if (!g[i]) {
+      const used = rm[ROW[i]] | cm[COL[i]] | bm[BOX[i]];
+      const free = ~used & 0x3FE;           // bits 1..9
+      let n = 0; for (let m = free; m; m &= m - 1) n++;
+      if (n < bestN) { best = i; bestMask = free; bestN = n; if (n === 0) return; if (n === 1) break; }
+    }
+    if (best === -1) { count++; return; }
+    for (let d = 1; d <= 9; d++) if (bestMask & (1 << d)) {
+      const b = 1 << d;
+      g[best] = d; rm[ROW[best]] |= b; cm[COL[best]] |= b; bm[BOX[best]] |= b;
+      solve();
+      g[best] = 0; rm[ROW[best]] &= ~b; cm[COL[best]] &= ~b; bm[BOX[best]] &= ~b;
+      if (count >= limit) return;
+    }
+  }
+  solve();
+  return count;
+}
+
+// Genera un tablero completo y válido al azar
+function fullGrid() {
+  const g = new Array(81).fill(0);
+  const ok = (i, d) => PEERS[i].every(j => g[j] !== d);
+  function fill(i) {
+    if (i === 81) return true;
+    for (const d of shuffle([1,2,3,4,5,6,7,8,9])) {
+      if (ok(i, d)) { g[i] = d; if (fill(i + 1)) return true; }
+    }
+    g[i] = 0; return false;
+  }
+  fill(0);
+  return g;
+}
+
+// Pistas objetivo por dificultad (menos pistas = más difícil)
+const TARGET = { facil: 40, medio: 32, dificil: 25 };
+const DIFF_NAME = { facil: 'Fácil', medio: 'Medio', dificil: 'Difícil' };
+
+// Crea el puzzle quitando números mientras la solución siga siendo única
+function makePuzzle(diff) {
+  const solution = fullGrid();
+  const puzzle = solution.slice();
+  let clues = 81;
+  for (const i of shuffle([...Array(81).keys()])) {
+    if (clues <= TARGET[diff]) break;
+    const keep = puzzle[i];
+    puzzle[i] = 0;
+    if (countSolutions(puzzle, 2) !== 1) puzzle[i] = keep;   // no es única: lo devolvemos
+    else clues--;
+  }
+  return { puzzle, solution };
+}
+
+/* ================================================================
+   ESTADO Y GUARDADO
+   ================================================================ */
+const SAVE_KEY = 'sudoku-partida';
+const REC_KEY = 'sudoku-records';
+let S = null;           // partida actual
+let selected = -1;      // celda seleccionada
+let notesMode = false;
+let undoStack = [];
+let tick = null;
+let wrongCells = new Set();
+
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  del(k) { try { localStorage.removeItem(k); } catch {} }
+};
+const save = () => { if (S && !S.done) store.set(SAVE_KEY, S); };
+
+function records() { return store.get(REC_KEY) || {}; }
+
+function fmt(sec) {
+  sec = Math.floor(sec);
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
+}
+
+/* ================================================================
+   PANTALLAS
+   ================================================================ */
+const $ = id => document.getElementById(id);
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
+  if (id !== 'game') stopTimer();
+}
+
+function renderHome() {
+  const saved = store.get(SAVE_KEY);
+  $('btnContinue').hidden = !saved;
+  if (saved) $('continueInfo').textContent = DIFF_NAME[saved.diff] + ' · ' + fmt(saved.elapsed);
+  const r = records();
+  for (const d of ['facil', 'medio', 'dificil']) {
+    const el = $('best' + d[0].toUpperCase() + d.slice(1));
+    el.textContent = r[d] ? 'Mejor ' + fmt(r[d].best) : '';
+  }
+  show('home');
+}
+
+function renderRecords() {
+  const r = records();
+  $('recList').innerHTML = ['facil', 'medio', 'dificil'].map(d => {
+    const x = r[d];
+    return `<div class="rec"><span class="k">${DIFF_NAME[d]}</span><span class="v">${
+      x ? fmt(x.best) + `<small>${x.count} resuelto${x.count === 1 ? '' : 's'} · promedio ${fmt(x.total / x.count)}</small>`
+        : '<small>Sin partidas</small>'}</span></div>`;
+  }).join('');
+  show('records');
+}
+
+/* ================================================================
+   JUEGO
+   ================================================================ */
+function newGame(diff) {
+  $('loading').classList.add('show');
+  // setTimeout deja que se pinte "Generando…" antes de calcular
+  setTimeout(() => {
+    const { puzzle, solution } = makePuzzle(diff);
+    S = { diff, puzzle, solution, values: puzzle.slice(), notes: new Array(81).fill(0), elapsed: 0, done: false };
+    undoStack = []; selected = -1; wrongCells.clear(); notesMode = false;
+    save();
+    $('loading').classList.remove('show');
+    openGame();
+  }, 30);
+}
+
+function openGame() {
+  $('diffLabel').textContent = DIFF_NAME[S.diff];
+  $('message').textContent = ''; $('message').className = 'message';
+  renderNotesBtn();
+  show('game');
+  renderBoard();
+  startTimer();
+}
+
+function startTimer() {
+  stopTimer();
+  $('timer').textContent = fmt(S.elapsed);
+  let last = Date.now();
+  tick = setInterval(() => {
+    const now = Date.now();
+    S.elapsed += (now - last) / 1000; last = now;
+    $('timer').textContent = fmt(S.elapsed);
+    if (Math.floor(S.elapsed) % 5 === 0) save();
+  }, 250);
+}
+function stopTimer() { if (tick) { clearInterval(tick); tick = null; } }
+
+// Pausa el reloj si salís de la app y lo reanuda al volver
+document.addEventListener('visibilitychange', () => {
+  if (!$('game').classList.contains('active') || !S || S.done) return;
+  if (document.hidden) { stopTimer(); save(); } else startTimer();
+});
+
+// Construye las 81 celdas una sola vez
+const board = $('board');
+for (let i = 0; i < 81; i++) {
+  const c = document.createElement('div');
+  c.className = 'cell r' + ROW[i];
+  c.addEventListener('pointerdown', () => { selected = i; renderBoard(); });
+  board.appendChild(c);
+}
+const pad = $('pad');
+for (let d = 1; d <= 9; d++) {
+  const b = document.createElement('button');
+  b.className = 'num';
+  b.innerHTML = d + '<small></small>';
+  b.addEventListener('click', () => input(d));
+  pad.appendChild(b);
+}
+
+function renderBoard() {
+  const selVal = selected >= 0 ? S.values[selected] : 0;
+  const counts = new Array(10).fill(0);
+  for (let i = 0; i < 81; i++) {
+    const c = board.children[i], v = S.values[i];
+    counts[v]++;
+    let cls = 'cell r' + ROW[i];
+    if (S.puzzle[i]) cls += ' given'; else if (v) cls += ' user';
+    if (selected >= 0) {
+      if (i === selected) cls += ' sel';
+      else if (selVal && v === selVal) cls += ' same';
+      else if (ROW[i] === ROW[selected] || COL[i] === COL[selected] || BOX[i] === BOX[selected]) cls += ' peer';
+    }
+    if (wrongCells.has(i)) cls += ' wrong';
+    c.className = cls;
+    if (v) c.textContent = v;
+    else if (S.notes[i]) {
+      let h = '<div class="notes">';
+      for (let d = 1; d <= 9; d++) h += '<span>' + (S.notes[i] & (1 << d) ? d : '') + '</span>';
+      c.innerHTML = h + '</div>';
+    } else c.textContent = '';
+  }
+  // Teclado: cuántos quedan de cada número; se apaga cuando están los 9
+  for (let d = 1; d <= 9; d++) {
+    const b = pad.children[d - 1], left = 9 - counts[d];
+    b.classList.toggle('used', left <= 0);
+    b.querySelector('small').textContent = left > 0 ? left : '';
+  }
+  pad.classList.toggle('notes-mode', notesMode);
+}
+
+function renderNotesBtn() {
+  $('btnNotes').classList.toggle('on', notesMode);
+  $('notesState').textContent = notesMode ? 'SÍ' : 'NO';
+}
+
+function pushUndo(i) { undoStack.push({ i, v: S.values[i], n: S.notes[i], peers: PEERS[i].map(j => S.notes[j]) }); if (undoStack.length > 300) undoStack.shift(); }
+
+function input(d) {
+  if (selected < 0 || S.done || S.puzzle[selected]) return;
+  const i = selected;
+  pushUndo(i);
+  if (notesMode) {
+    if (S.values[i]) return;
+    S.notes[i] ^= (1 << d);                // prende/apaga la nota d
+  } else {
+    S.values[i] = S.values[i] === d ? 0 : d; // tocar el mismo número lo borra
+    S.notes[i] = 0;
+    // Quita automáticamente esa nota de las celdas relacionadas
+    if (S.values[i]) for (const j of PEERS[i]) S.notes[j] &= ~(1 << d);
+  }
+  wrongCells.delete(i);
+  $('message').textContent = ''; $('message').className = 'message';
+  renderBoard(); save();
+  if (!notesMode) checkComplete();
+}
+
+function erase() {
+  if (selected < 0 || S.done || S.puzzle[selected]) return;
+  if (!S.values[selected] && !S.notes[selected]) return;
+  pushUndo(selected);
+  S.values[selected] = 0; S.notes[selected] = 0;
+  wrongCells.delete(selected);
+  renderBoard(); save();
+}
+
+function undo() {
+  const u = undoStack.pop();
+  if (!u || S.done) return;
+  S.values[u.i] = u.v; S.notes[u.i] = u.n;
+  PEERS[u.i].forEach((j, k) => S.notes[j] = u.peers[k]);
+  selected = u.i; wrongCells.delete(u.i);
+  renderBoard(); save();
+}
+
+// Solo verifica cuando el tablero está completo
+function checkComplete() {
+  if (S.values.some(v => !v)) return;
+  wrongCells.clear();
+  S.values.forEach((v, i) => { if (v !== S.solution[i]) wrongCells.add(i); });
+  if (wrongCells.size) {
+    $('message').textContent = wrongCells.size === 1 ? 'Hay 1 casilla incorrecta' : `Hay ${wrongCells.size} casillas incorrectas`;
+    $('message').className = 'message err';
+    renderBoard();
+    return;
+  }
+  win();
+}
+
+function win() {
+  S.done = true; stopTimer();
+  const t = Math.floor(S.elapsed);
+  const r = records();
+  const prev = r[S.diff];
+  const isBest = !prev || t < prev.best;
+  r[S.diff] = { best: isBest ? t : prev.best, count: (prev?.count || 0) + 1, total: (prev?.total || 0) + t };
+  store.set(REC_KEY, r);
+  store.del(SAVE_KEY);
+  $('winDiff').textContent = DIFF_NAME[S.diff];
+  $('winTime').textContent = fmt(t);
+  $('winBest').textContent = isBest ? (prev ? '¡Nuevo récord!' : 'Primer récord en este nivel') : 'Récord: ' + fmt(prev.best);
+  $('againDiff').textContent = DIFF_NAME[S.diff];
+  selected = -1; renderBoard();
+  setTimeout(() => $('win').classList.add('show'), 350);
+}
+
+/* ================================================================
+   EVENTOS
+   ================================================================ */
+document.querySelectorAll('[data-new]').forEach(b => b.addEventListener('click', () => {
+  const saved = store.get(SAVE_KEY);
+  if (saved && !confirm('Tenés una partida sin terminar. ¿Empezar una nueva igual?')) return;
+  newGame(b.dataset.new);
+}));
+$('btnContinue').addEventListener('click', () => {
+  S = store.get(SAVE_KEY);
+  if (!S) return renderHome();
+  undoStack = []; selected = -1; wrongCells.clear(); notesMode = false;
+  openGame();
+});
+$('btnRecords').addEventListener('click', renderRecords);
+$('btnRecBack').addEventListener('click', renderHome);
+$('btnBack').addEventListener('click', () => { save(); renderHome(); });
+$('btnUndo').addEventListener('click', undo);
+$('btnErase').addEventListener('click', erase);
+$('btnNotes').addEventListener('click', () => { notesMode = !notesMode; renderNotesBtn(); renderBoard(); });
+$('btnAgain').addEventListener('click', () => { $('win').classList.remove('show'); newGame(S.diff); });
+$('btnWinMenu').addEventListener('click', () => { $('win').classList.remove('show'); renderHome(); });
+
+// Teclado físico (útil para probar en la compu)
+document.addEventListener('keydown', e => {
+  if (!$('game').classList.contains('active')) return;
+  if (e.key >= '1' && e.key <= '9') input(+e.key);
+  else if (e.key === 'Backspace' || e.key === 'Delete' || e.key === '0') erase();
+  else if (e.key === 'n') $('btnNotes').click();
+  else if (e.key === 'z' && (e.ctrlKey || e.metaKey)) undo();
+  else if (e.key.startsWith('Arrow') && selected >= 0) {
+    const r = ROW[selected], c = COL[selected];
+    const m = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[e.key];
+    selected = ((r + m[0] + 9) % 9) * 9 + (c + m[1] + 9) % 9;
+    renderBoard();
+  }
+});
+
+window.addEventListener('pagehide', save);
+
+/* ================================================================
+   TEMA: automático (sigue al celular) → claro → oscuro
+   ================================================================ */
+const THEME_KEY = 'sudoku-tema';
+const THEMES = ['auto', 'light', 'dark'];
+const THEME_NAME = { auto: 'Automático', light: 'Claro', dark: 'Oscuro' };
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+function applyTheme(t) {
+  if (t === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', t);
+  $('themeLabel').textContent = THEME_NAME[t];
+  // Colorea la barra de estado del celular según el fondo
+  const isDark = t === 'dark' || (t === 'auto' && darkQuery.matches);
+  document.querySelector('meta[name=theme-color]').content = isDark ? '#121214' : '#ffffff';
+}
+let theme = store.get(THEME_KEY) || 'auto';
+applyTheme(theme);
+darkQuery.addEventListener('change', () => applyTheme(theme));
+$('btnTheme').addEventListener('click', () => {
+  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+  store.set(THEME_KEY, theme);
+  applyTheme(theme);
+});
+
+renderHome();
+
+/* ================================================================
+   SERVICE WORKER: hace que la app funcione sin internet
+   ================================================================ */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+</script>
+</body>
+</html>
